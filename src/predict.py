@@ -1,40 +1,43 @@
+from collections.abc import Mapping
+
+import numpy as np
 import pandas as pd
-import joblib
-from pathlib import Path
-from features import create_features
 
-def predict_telemetry(raw_sample: dict, models_dir: str = "models") -> dict:
-    models_path = Path(models_dir)
-    clf = joblib.load(models_path / "random_forest_model.pkl")
-    iso = joblib.load(models_path / "isolation_forest_model.pkl")
+if __package__:
+    from .features import create_features
+    from .model_store import load_models
+    from .validation import FEATURE_COLUMNS
+else:
+    from features import create_features
+    from model_store import load_models
+    from validation import FEATURE_COLUMNS
 
-    df = pd.DataFrame([raw_sample])
-    df_feat = create_features(df)
 
-    features = [
-        'air_temperature_k', 'process_temperature_k', 'rotational_speed_rpm', 
-        'torque_nm', 'tool_wear_min', 'temp_difference_k', 'power_estimate', 
-        'torque_speed_ratio', 'wear_power_factor'
-    ]
+def predict_batch(raw_samples: pd.DataFrame, models_dir: str = 'models') -> pd.DataFrame:
+    X = create_features(raw_samples)[FEATURE_COLUMNS]
+    clf, iso = load_models(models_dir)
+    probabilities = clf.predict_proba(X)[:, 1]
+    return pd.DataFrame({
+        'failure_probability': np.round(probabilities, 4),
+        'failure_predicted': (probabilities >= 0.5).astype(int),
+        'is_anomaly': (iso.predict(X) == -1).astype(int),
+    }, index=X.index)
 
-    X = df_feat[features]
 
-    fail_prob = float(clf.predict_proba(X)[0, 1])
-    is_anomaly = int(iso.predict(X)[0] == -1)
+def predict_telemetry(raw_sample: dict, models_dir: str = 'models') -> dict:
+    if not isinstance(raw_sample, Mapping):
+        raise ValueError('A amostra deve ser um mapeamento de sensores e valores escalares.')
+    if any(not pd.api.types.is_scalar(value) for value in raw_sample.values()):
+        raise ValueError('Os valores dos sensores devem ser escalares.')
+    return predict_batch(pd.DataFrame([raw_sample]), models_dir).to_dict('records')[0]
 
-    return {
-        "failure_probability": round(fail_prob, 4),
-        "failure_predicted": int(fail_prob >= 0.5),
-        "is_anomaly": is_anomaly
-    }
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sample = {
         'air_temperature_k': 300.0,
         'process_temperature_k': 311.0,
         'rotational_speed_rpm': 1400,
         'torque_nm': 50.0,
-        'tool_wear_min': 210
+        'tool_wear_min': 210,
     }
-    result = predict_telemetry(sample)
-    print(f"Diagnóstico: {result}")
+    print(f'Diagnóstico: {predict_telemetry(sample)}')

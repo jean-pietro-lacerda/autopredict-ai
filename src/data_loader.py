@@ -1,12 +1,15 @@
 import pandas as pd
-from pathlib import Path
+if __package__:
+    from .validation import project_path, read_csv_checked, validate_numeric_frame, validate_labels, SENSOR_COLUMNS
+else:
+    from validation import project_path, read_csv_checked, validate_numeric_frame, validate_labels, SENSOR_COLUMNS
 
 def load_raw_data(data_path: str = "data/raw/ai4i2020.csv") -> pd.DataFrame:
-    path = Path(data_path)
+    path = project_path(data_path)
     if not path.exists():
         raise FileNotFoundError(f"Ficheiro não encontrado em: {path.resolve()}")
 
-    df = pd.read_csv(path)
+    df = read_csv_checked(path)
 
     # Dicionário de padronização 
     rename_map = {
@@ -27,6 +30,8 @@ def load_raw_data(data_path: str = "data/raw/ai4i2020.csv") -> pd.DataFrame:
     }
 
     df = df.rename(columns=rename_map)
+    validate_numeric_frame(df, SENSOR_COLUMNS)
+    validate_labels(df)
     return df
 
 if __name__ == "__main__":
